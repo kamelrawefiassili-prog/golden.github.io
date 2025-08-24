@@ -11,22 +11,22 @@ app.use(express.urlencoded({ extended: true }));
 // رابط الموقع الأصلي
 const TARGET = "http://gaaaagaaa.onlinewebshop.net";
 
-// مساعدة لتعديل الروابط والفورمات في HTML
+// تعديل الروابط والفورمات في صفحات HTML فقط
 async function rewriteHTML(body) {
   const dom = new JSDOM(body);
   const document = dom.window.document;
 
-  // تعديل كل الفورمات
+  // تعديل الفورمات
   document.querySelectorAll("form").forEach(form => {
-    let action = form.getAttribute("action");
+    const action = form.getAttribute("action");
     if (action && !action.startsWith("http")) {
       form.setAttribute("action", "/api/" + action);
     }
   });
 
-  // تعديل كل الروابط الداخلية
+  // تعديل الروابط الداخلية
   document.querySelectorAll("a").forEach(a => {
-    let href = a.getAttribute("href");
+    const href = a.getAttribute("href");
     if (href && !href.startsWith("http") && !href.startsWith("#")) {
       a.setAttribute("href", "/api/" + href);
     }
@@ -35,12 +35,12 @@ async function rewriteHTML(body) {
   return dom.serialize();
 }
 
-// صفحة افتراضية
+// الصفحة الافتراضية
 app.get("/", (req, res) => {
   res.send("✅ GoldenStore Proxy running with SSL on Render!");
 });
 
-// كل طلبات /api/*
+// جميع طلبات /api/*
 app.all("/api/*", async (req, res) => {
   try {
     const path = req.originalUrl.replace("/api", "");
@@ -54,22 +54,24 @@ app.all("/api/*", async (req, res) => {
     };
 
     if (req.method !== "GET" && req.method !== "HEAD") {
-      fetchOptions.body = req.body && Object.keys(req.body).length > 0 ? JSON.stringify(req.body) : undefined;
+      if (req.body && Object.keys(req.body).length > 0) {
+        // إذا الفورم يستخدم application/x-www-form-urlencoded
+        fetchOptions.body = new URLSearchParams(req.body);
+      }
     }
 
     // جلب البيانات من الموقع الأصلي
     const response = await fetch(targetUrl, fetchOptions);
-
-    // محتوى HTML → نعدل الروابط والفورمات
     const contentType = response.headers.get("content-type") || "";
-    let data;
-    if (contentType.includes("text/html")) {
+
+    // إذا صفحة HTML ثابتة (غير PHP) → نعدل الروابط والفورمات
+    if (contentType.includes("text/html") && !path.endsWith(".php")) {
       const text = await response.text();
-      data = await rewriteHTML(text);
+      const rewritten = await rewriteHTML(text);
       res.set("Content-Type", "text/html");
-      res.send(data);
+      res.send(rewritten);
     } else {
-      // أي محتوى آخر (JSON، صور، JS...) نرسله مباشرة
+      // أي محتوى آخر أو PHP → نرسله كما هو
       const buffer = await response.arrayBuffer();
       res.set("Content-Type", contentType);
       res.send(Buffer.from(buffer));
